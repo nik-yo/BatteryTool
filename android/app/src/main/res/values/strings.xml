@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Battery Tool</string>
+    <string name="battery_icon">A small status bar icon indicating the current battery state</string>
+    <string name="status">Status</string>
+    <string name="events">Events</string>
+    <string name="metrics">Metrics</string>
+</resources>
