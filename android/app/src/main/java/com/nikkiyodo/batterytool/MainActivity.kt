@@ -33,6 +33,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.room.Room
 import com.nikkiyodo.batterytool.ui.theme.BatteryToolTheme
 
 sealed class Screen(val route: String, @StringRes val resourceId: Int) {
@@ -46,6 +47,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        val db = Room.databaseBuilder(
+            applicationContext,
+            AppDatabase::class.java, "battery-tool"
+        ).build()
 
         setContent {
             BatteryToolTheme {
@@ -105,8 +111,8 @@ class MainActivity : ComponentActivity() {
                 ) { innerPadding ->
                     NavHost(navController, startDestination = Screen.Status.route, Modifier.padding(innerPadding)) {
                         composable(Screen.Status.route) { Status() }
-                        composable(Screen.Events.route) { Events() }
-                        composable(Screen.Properties.route) { Properties() }
+                        composable(Screen.Events.route) { Events(db) }
+                        composable(Screen.Properties.route) { Properties(db) }
                     }
                 }
             }

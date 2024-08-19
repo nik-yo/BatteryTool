@@ -3,6 +3,7 @@ package com.nikkiyodo.batterytool
 import android.content.Intent
 import android.os.BatteryManager
 import android.os.Build
+import com.nikkiyodo.batterytool.data.BatteryEvent
 import kotlinx.datetime.Clock
 
 class Util {
@@ -71,19 +72,19 @@ class Util {
             val voltage = intent.getIntExtra(BatteryManager.EXTRA_VOLTAGE, -1)
 
             return BatteryEvent(
-                Clock.System.now(),
-                batteryIconResId,
-                batteryLow,
-                chargingStatus,
-                cycleCount,
-                batteryHealth,
-                level,
-                scale,
-                plugged,
-                batteryTech,
-                temperature,
-                status,
-                voltage
+                timestamp = Clock.System.now().toEpochMilliseconds(),
+                batteryIconResId = batteryIconResId,
+                batteryLow = batteryLow,
+                chargingStatus = chargingStatus,
+                cycleCount = cycleCount,
+                batteryHealth = batteryHealth,
+                level = level,
+                scale= scale,
+                plugged = plugged,
+                batteryTech = batteryTech,
+                temperature = temperature,
+                status = status,
+                voltage = voltage
             )
         }
     }

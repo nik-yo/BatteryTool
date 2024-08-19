@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -35,11 +36,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.nikkiyodo.batterytool.data.BatteryMetric
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
+import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
@@ -47,25 +55,12 @@ import kotlinx.datetime.format
 import kotlinx.datetime.format.char
 import kotlinx.datetime.toLocalDateTime
 
-data class Metric(
-    val timestamp: Instant,
-    val capacity: Int,
-    val chargeCounter: Int,
-    val currentAverage: Int,
-    val currentNow: Int,
-    val energyCounter: Int,
-    val status: String,
-    val chargeRemaining: Long,
-    val isCharging: Boolean)
-
-const val MAX_ITEMS = 20
-
 @Composable
-fun Properties() {
-    val metricList = remember { mutableStateListOf<Metric>() }
+fun Properties(db: AppDatabase) {
+    val metricList = remember { mutableStateListOf<BatteryMetric>() }
 //    var metricList by remember { mutableStateOf(listOf<Metric>())}
     var isCapturing by remember { mutableStateOf(false) }
-    var openMetricDialog by remember { mutableStateOf<Metric?>(null) }
+    var openMetricDialog by remember { mutableStateOf<BatteryMetric?>(null) }
 
     var handlerThread by remember { mutableStateOf<HandlerThread?>(null) }
     var handler by remember { mutableStateOf<Handler?>(null) }
@@ -76,9 +71,16 @@ fun Properties() {
 
     val batteryStatsPermission = context.checkSelfPermission(android.Manifest.permission.BATTERY_STATS)
 
-    fun capture() {
+    LaunchedEffect(context) {
+        val batteryMetrics = db.batteryMetricDao().getAllMetrics()
+        if (batteryMetrics.isNotEmpty()) {
+            metricList.addAll(batteryMetrics)
+        }
+    }
+
+    fun getMetric(): BatteryMetric? {
         manager?.let {
-            val lastRefreshed = Clock.System.now()
+            val lastRefreshed = Clock.System.now().toEpochMilliseconds()
             val capacity = manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
             val chargeCounter = manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)
             val currentAverage = manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE)
@@ -94,7 +96,7 @@ fun Properties() {
             }
             val isCharging = manager.isCharging
 
-            val metric = Metric(
+            return BatteryMetric(
                             timestamp = lastRefreshed,
                             capacity = capacity,
                             chargeCounter = chargeCounter,
@@ -104,14 +106,8 @@ fun Properties() {
                             status = status,
                             chargeRemaining = chargeRemaining,
                             isCharging = isCharging)
-            metricList.add(metric)
         }
-    }
-
-    fun remove() {
-        if (metricList.count() > MAX_ITEMS) {
-            metricList.removeAt(0)
-        }
+        return null
     }
 
     fun stop() {
@@ -126,8 +122,20 @@ fun Properties() {
 
     val runnable = object : Runnable {
         override fun run() {
-            capture()
-            remove()
+            val batteryMetric = getMetric()
+            if (batteryMetric != null) {
+                metricList.add(batteryMetric)
+                CoroutineScope(Dispatchers.IO).launch {
+                    db.batteryMetricDao().insertMetric(batteryMetric)
+                    val firstBatteryMetric = metricList[0]
+                    if (metricList.count() > BuildConfig.MAX_METRICS.toInt()) {
+                        db.batteryMetricDao().deleteMetrics(firstBatteryMetric)
+                        withContext(Dispatchers.Main) {
+                            metricList.removeAt(0)
+                        }
+                    }
+                }
+            }
             handler?.postDelayed(this, 1000)
         }
     }
@@ -150,9 +158,12 @@ fun Properties() {
                 Row (
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f).fillMaxSize()
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxSize()
                 ) {
-                    Text(text = "Press start to capture up to $MAX_ITEMS samples")
+                    Text(text = "Press start to capture metrics every 1 second",
+                        textAlign = TextAlign.Center)
                 }
             } else {
                 LazyColumn(
@@ -160,7 +171,7 @@ fun Properties() {
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(items = metricList,
-                          key = { it.timestamp.toEpochMilliseconds() }) {
+                          key = { it.timestamp }) {
                         Card(
                             onClick = {
                                 openMetricDialog = it
@@ -170,7 +181,15 @@ fun Properties() {
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                                 modifier = Modifier.padding(16.dp)
                             ) {
-                                Text(text = it.timestamp.toLocalDateTime(TimeZone.currentSystemDefault()).format(LocalDateTime.Format {
+                                Text(text = Instant.fromEpochMilliseconds(it.timestamp).toLocalDateTime(TimeZone.currentSystemDefault()).format(LocalDateTime.Format {
+                                    date(
+                                        LocalDate.Format {
+                                            monthNumber(); char('/')
+                                            dayOfMonth(); char('/')
+                                            year()
+                                        }
+                                    )
+                                    chars(" ")
                                     time(
                                         LocalTime.Format {
                                             amPmHour(); char(':')
@@ -214,7 +233,12 @@ fun Properties() {
             ) {
                 OutlinedButton(
                     onClick = {
-                        metricList.clear()
+                        CoroutineScope(Dispatchers.IO).launch {
+                            db.batteryMetricDao().deleteMetrics(*metricList.toTypedArray())
+                            withContext(Dispatchers.Main) {
+                                metricList.clear()
+                            }
+                        }
                     }
                 ) {
                     Text(text = "Clear")
@@ -298,21 +322,11 @@ fun getChargeRemaining(chargeRemainingMs: Long): String {
     }
 }
 
-//@Composable
-//fun Cell(value: String, modifier: Modifier) {
-//    Box(
-//        modifier = modifier.padding(8.dp),
-//        contentAlignment = Alignment.Center
-//    ) {
-//        Text(text = value)
-//    }
-//}
-
 @Composable
 fun MetricDialog(
     onDismissRequest: () -> Unit,
 //    onConfirmation: () -> Unit,
-    metric: Metric,
+    metric: BatteryMetric,
     batteryStatsPermission: Int
 ) {
     Dialog(onDismissRequest = { onDismissRequest() }) {
@@ -326,7 +340,7 @@ fun MetricDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.padding(16.dp)
             ) {
-                Text(text = metric.timestamp.toLocalDateTime(TimeZone.currentSystemDefault()).format(
+                Text(text = Instant.fromEpochMilliseconds(metric.timestamp).toLocalDateTime(TimeZone.currentSystemDefault()).format(
                     LocalDateTime.Format {
                         monthNumber()
                         char('/')

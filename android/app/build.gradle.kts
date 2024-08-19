@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.jetbrains.kotlin.android)
+    id("com.google.devtools.ksp")
 }
 
 android {
@@ -21,7 +22,15 @@ android {
     }
 
     buildTypes {
+        debug {
+            isDebuggable = true
+            buildConfigField("String", "MAX_EVENTS", "\"5\"")
+            buildConfigField("String", "MAX_METRICS", "\"5\"")
+        }
         release {
+            isDebuggable = false
+            buildConfigField("String", "MAX_EVENTS", "\"20\"")
+            buildConfigField("String", "MAX_METRICS", "\"20\"")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -37,6 +46,7 @@ android {
         jvmTarget = "1.8"
     }
     buildFeatures {
+        buildConfig = true
         compose = true
     }
     composeOptions {
@@ -70,4 +80,6 @@ dependencies {
     implementation(libs.kotlinx.datetime)
     implementation(libs.androidx.room.runtime)
     annotationProcessor(libs.androidx.room.compiler)
+    ksp(libs.androidx.room.compiler)
+    implementation(libs.androidx.room.ktx)
 }
